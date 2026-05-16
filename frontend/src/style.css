@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-console-bg text-console-gray font-mono;
+  }
+
+  /* 自定义滚动条 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-console-bg;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-console-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-console-gray;
+  }
+}
+
+@layer components {
+  /* 终端风格输入框 */
+  .input-console {
+    @apply w-full bg-console-bg border border-console-border rounded px-4 py-2
+           text-console-green font-mono text-sm
+           placeholder:text-console-gray/40
+           focus:outline-none focus:border-console-blue focus:ring-1 focus:ring-console-blue/30
+           transition-colors duration-200;
+  }
+
+  /* 终端风格按钮 */
+  .btn-console {
+    @apply px-6 py-2 rounded font-mono text-sm font-semibold
+           border transition-all duration-200
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn-console bg-console-blue/10 border-console-blue text-console-blue
+           hover:bg-console-blue/20 hover:border-console-blue
+           active:bg-console-blue/30;
+  }
+
+  .btn-loading {
+    @apply btn-console bg-console-yellow/10 border-console-yellow text-console-yellow
+           cursor-wait;
+  }
+
+  /* Markdown 内容渲染 */
+  .report-content {
+    @apply text-console-gray;
+  }
+
+  .report-content h1 {
+    @apply text-console-green font-bold text-2xl mb-4 border-b border-console-border pb-2;
+  }
+
+  .report-content h2 {
+    @apply text-console-blue font-semibold text-lg mt-6 mb-3;
+  }
+
+  .report-content h3 {
+    @apply text-console-purple font-medium text-base mt-4 mb-2;
+  }
+
+  .report-content table {
+    @apply w-full border-collapse mb-4;
+  }
+
+  .report-content th {
+    @apply border border-console-border bg-console-panel px-3 py-2 text-left text-console-yellow text-sm;
+  }
+
+  .report-content td {
+    @apply border border-console-border px-3 py-2 text-sm;
+  }
+
+  .report-content tr:hover td {
+    @apply bg-console-panel/50;
+  }
+
+  .report-content ul {
+    @apply list-disc list-inside space-y-1 mb-4;
+  }
+
+  .report-content li {
+    @apply text-sm;
+  }
+
+  .report-content blockquote {
+    @apply border-l-4 border-console-blue bg-console-panel/50 px-4 py-2 my-4 rounded-r text-console-gray/80 text-sm;
+  }
+
+  .report-content p {
+    @apply mb-3 text-sm leading-relaxed;
+  }
+
+  .report-content hr {
+    @apply border-console-border my-6;
+  }
+
+  .report-content em {
+    @apply text-console-yellow/80;
+  }
+
+  .report-content strong {
+    @apply text-console-green font-semibold;
+  }
+}
