@@ -1,6 +1,7 @@
 """
-体育数据获取模块 - 接入 api-football.com 真实 API
-Free plan 限制：仅支持 2022-2024 赛季，无赔率数据
+体育数据获取模块
+USE_MOCK=true 时使用模拟数据（无 API 额度时启用）
+USE_MOCK=false 时使用 api-football.com 真实 API
 """
 
 import os
@@ -11,13 +12,88 @@ from dotenv import load_dotenv
 from typing import TypedDict
 
 load_dotenv()
+
 logger = logging.getLogger(__name__)
 
-API_KEY = os.getenv("SPORTSAPI_API_KEY")
-HEADERS = {"x-apisports-key": API_KEY}
-BASE_URL = "https://v3.football.api-sports.io"
+# ===================== Mock 模式开关 =====================
+USE_MOCK = os.getenv("USE_MOCK", "true").lower() == "true"
+# USE_MOCK=false 时才加载以下真实 API 配置
+if not USE_MOCK:
+    API_KEY = os.getenv("SPORTSAPI_API_KEY")
+    HEADERS = {"x-apisports-key": API_KEY}
+    BASE_URL = "https://v3.football.api-sports.io"
+    DEFAULT_SEASON = 2024
 
-# 中文队名 → API 搜索名 映射（补充 API 无法直接按中文搜索的情况）
+
+# ===================== Mock 数据 =====================
+
+MOCK_TEAM_STATS: dict[str, dict] = {
+    "Manchester City": {
+        "team_name": "Manchester City",
+        "league": "Premier League",
+        "recent_matches": [
+            {"opponent": "Aston Villa", "result": "胜", "score": "2-1", "date": "2025-04-22"},
+            {"opponent": "Wolves", "result": "胜", "score": "1-0", "date": "2025-05-02"},
+            {"opponent": "Southampton", "result": "平", "score": "0-0", "date": "2025-05-10"},
+            {"opponent": "Bournemouth", "result": "胜", "score": "3-1", "date": "2025-05-20"},
+            {"opponent": "Fulham", "result": "胜", "score": "2-0", "date": "2025-05-25"},
+        ],
+        "injuries": ["O. Bobb (Missing Fixture)", "Rodri (Questionable)"],
+        "win_rate": 0.55,
+        "avg_goals": 1.9,
+    },
+    "Arsenal": {
+        "team_name": "Arsenal",
+        "league": "Premier League",
+        "recent_matches": [
+            {"opponent": "Crystal Palace", "result": "胜", "score": "3-0", "date": "2025-04-21"},
+            {"opponent": "Manchester United", "result": "胜", "score": "2-1", "date": "2025-05-03"},
+            {"opponent": "Brighton", "result": "平", "score": "1-1", "date": "2025-05-10"},
+            {"opponent": "Liverpool", "result": "负", "score": "1-2", "date": "2025-05-18"},
+            {"opponent": "Newcastle", "result": "胜", "score": "2-0", "date": "2025-05-25"},
+        ],
+        "injuries": ["B. Saka (Muscle Injury)", "O. Xhaka (Ankle)"],
+        "win_rate": 0.65,
+        "avg_goals": 2.1,
+    },
+    "Real Madrid": {
+        "team_name": "Real Madrid",
+        "league": "La Liga",
+        "recent_matches": [
+            {"opponent": "Barcelona", "result": "负", "score": "2-3", "date": "2025-05-11"},
+            {"opponent": "Sevilla", "result": "胜", "score": "3-0", "date": "2025-05-04"},
+            {"opponent": "Real Sociedad", "result": "胜", "score": "2-1", "date": "2025-04-27"},
+            {"opponent": "Athletic Bilbao", "result": "平", "score": "1-1", "date": "2025-04-20"},
+            {"opponent": "Getafe", "result": "胜", "score": "4-0", "date": "2025-04-13"},
+        ],
+        "injuries": ["E. Camavinga (Knee)", "J. Bellingham (Suspended)"],
+        "win_rate": 0.62,
+        "avg_goals": 2.0,
+    },
+    "Barcelona": {
+        "team_name": "Barcelona",
+        "league": "La Liga",
+        "recent_matches": [
+            {"opponent": "Real Madrid", "result": "胜", "score": "3-2", "date": "2025-05-11"},
+            {"opponent": "Villarreal", "result": "胜", "score": "3-1", "date": "2025-05-04"},
+            {"opponent": "Atletico Madrid", "result": "胜", "score": "2-0", "date": "2025-04-28"},
+            {"opponent": "Real Sociedad", "result": "平", "score": "2-2", "date": "2025-04-21"},
+            {"opponent": "Mallorca", "result": "胜", "score": "3-0", "date": "2025-04-14"},
+        ],
+        "injuries": ["Gavi (ACL - Long Term)", "A. Christensen (Calf)"],
+        "win_rate": 0.70,
+        "avg_goals": 2.3,
+    },
+}
+
+MOCK_ODDS = {
+    ("Manchester City", "Arsenal"): {"home_win": 2.10, "draw": 3.30, "away_win": 3.40},
+    ("Arsenal", "Manchester City"): {"home_win": 2.20, "draw": 3.25, "away_win": 3.20},
+    ("Real Madrid", "Barcelona"): {"home_win": 2.05, "draw": 3.40, "away_win": 3.50},
+    ("Barcelona", "Real Madrid"): {"home_win": 2.30, "draw": 3.20, "away_win": 3.00},
+}
+
+# 中文别名（Mock 模式也需要）
 TEAM_NAME_ALIASES: dict[str, str] = {
     "曼城": "Manchester City",
     "曼联": "Manchester United",
@@ -34,10 +110,9 @@ TEAM_NAME_ALIASES: dict[str, str] = {
     "巴黎": "Paris Saint-Germain",
     "马竞": "Atletico Madrid",
     "热刺": "Tottenham Hotspur",
+    "维拉": "Aston Villa",
+    "维罗纳": "Hellas Verona",
 }
-
-# Free plan 支持的赛季
-DEFAULT_SEASON = 2024
 
 
 # ===================== 数据结构 =====================
@@ -60,10 +135,58 @@ class OddsDict(TypedDict, total=False):
     fetch_time: str
 
 
-# ===================== 工具函数 =====================
+# ===================== Mock 实现 =====================
+
+
+def _mock_team_stats(team_name: str, resolved_name: str) -> MatchResultDict:
+    if resolved_name in MOCK_TEAM_STATS:
+        data = MOCK_TEAM_STATS[resolved_name]
+        return {
+            "team_name": resolved_name,
+            "league": data["league"],
+            "recent_matches": data["recent_matches"],
+            "injuries": data["injuries"],
+            "win_rate": data["win_rate"],
+            "avg_goals": data["avg_goals"],
+        }
+    # 未知球队返回合理默认值
+    return {
+        "team_name": resolved_name,
+        "league": "Unknown",
+        "recent_matches": [],
+        "injuries": [],
+        "win_rate": 0.0,
+        "avg_goals": 0.0,
+    }
+
+
+def _mock_match_odds(team_a: str, team_b: str) -> OddsDict:
+    key = (team_a, team_b)
+    if key in MOCK_ODDS:
+        odds = MOCK_ODDS[key]
+    elif (team_b, team_a) in MOCK_ODDS:
+        o = MOCK_ODDS[(team_b, team_a)]
+        odds = {"home_win": o["away_win"], "draw": o["draw"], "away_win": o["home_win"]}
+    else:
+        # 未知对决生成模拟赔率
+        import random
+        odds = {
+            "home_win": round(random.uniform(1.9, 2.5), 2),
+            "draw": round(random.uniform(3.0, 3.5), 2),
+            "away_win": round(random.uniform(2.5, 4.0), 2),
+        }
+    return {
+        "team_a": team_a,
+        "team_b": team_b,
+        **odds,
+        "fetch_time": __import__("datetime").datetime.now().isoformat(),
+    }
+
+
+# ===================== 真实 API 实现 =====================
+
 
 def _do_request(endpoint: str, params: dict, max_retries: int = 3) -> dict:
-    """带重试的 HTTP GET"""
     for attempt in range(1, max_retries + 1):
         try:
             resp = requests.get(
@@ -86,8 +209,6 @@ def _do_request(endpoint: str, params: dict, max_retries: int = 3) -> dict:
 
 
 def _search_team_id(team_name: str) -> int | None:
-    """按队名搜索球队，返回 team_id（支持中文别名映射）"""
-    # 中文名转英文
     search_name = TEAM_NAME_ALIASES.get(team_name, team_name)
     data = _do_request("teams", {"name": search_name})
     if data.get("results", 0) > 0:
@@ -97,30 +218,32 @@ def _search_team_id(team_name: str) -> int | None:
 
 # ===================== 核心函数 =====================
 
+
 def fetch_team_stats(team_name: str, max_retries: int = 3) -> MatchResultDict:
     """
-    获取球队近5场战绩和伤病名单（真实 API）
-    Free plan 限制：仅 2022-2024 赛季数据
+    获取球队近5场战绩和伤病名单
     """
+    # ---------- Mock 模式 ----------
+    if USE_MOCK:
+        resolved = TEAM_NAME_ALIASES.get(team_name, team_name)
+        logger.info(f"[MOCK] fetch_team_stats: {team_name} -> {resolved}")
+        return _mock_team_stats(team_name, resolved)
+
+    # ---------- 真实 API 模式 ----------
     last_error = None
     for attempt in range(1, max_retries + 1):
         try:
-            # 1. 查找球队 ID
             team_id = _search_team_id(team_name)
             if team_id is None:
                 raise ValueError(f"球队不存在或名称不匹配: {team_name}")
 
-            # 2. 球队统计（含 form 战绩字符串）
             stats_data = _do_request(
                 "teams/statistics",
                 {"team": team_id, "league": 39, "season": DEFAULT_SEASON},
             )
             stats = stats_data["response"]
-
-            # 从统计中获取正确的 league_id
             league_id = stats.get("league", {}).get("id", 39)
 
-            # 6. 获取近5场战绩（Free plan 不支持 last=N，改用 league fixtures 过滤）
             all_fixtures_data = _do_request(
                 "fixtures",
                 {"league": league_id, "season": DEFAULT_SEASON},
@@ -131,56 +254,31 @@ def fetch_team_stats(team_name: str, max_retries: int = 3) -> MatchResultDict:
                     f for f in all_fixtures_data["response"]
                     if f["teams"]["home"]["id"] == team_id or f["teams"]["away"]["id"] == team_id
                 ]
-                # 取最近5场
                 for f in team_fixtures[-5:]:
                     ft = f["fixture"]
-                    home = f["teams"]["home"]
-                    away = f["teams"]["away"]
+                    home, away = f["teams"]["home"], f["teams"]["away"]
                     gh, ga = f["goals"]["home"], f["goals"]["away"]
                     is_home = home["id"] == team_id
                     if is_home:
                         outcome = "胜" if gh > ga else "平" if gh == ga else "负"
-                        opp = away["name"]
-                        score = f"{gh}-{ga}"
+                        matches.append({"date": ft["date"][:10], "opponent": away["name"], "result": outcome, "score": f"{gh}-{ga}"})
                     else:
                         outcome = "胜" if ga > gh else "平" if ga == gh else "负"
-                        opp = home["name"]
-                        score = f"{ga}-{gh}"
-                    matches.append({
-                        "date": ft["date"][:10],
-                        "opponent": opp,
-                        "result": outcome,
-                        "score": score,
-                    })
+                        matches.append({"date": ft["date"][:10], "opponent": home["name"], "result": outcome, "score": f"{ga}-{gh}"})
 
-            # 4. 计算胜负率
             form_str = stats.get("form", "") or ""
-            if form_str:
-                wins = sum(1 for c in form_str.upper() if c == "W")
-                win_rate = wins / len(form_str)
-            else:
-                win_rate = 0.0
+            win_rate = sum(1 for c in form_str.upper() if c == "W") / len(form_str) if form_str else 0.0
 
-            # 5. 伤病名单
-            injuries_data = _do_request(
-                "injuries",
-                {"team": team_id, "season": DEFAULT_SEASON},
-            )
-            injuries = []
-            if injuries_data.get("results", 0) > 0:
-                for inj in injuries_data["response"]:
-                    player = inj["player"]
-                    injuries.append(f"{player['name']}（{player.get('type','未知伤情')}）")
-
-            # 6. 联赛信息
-            league_name = stats.get("league", {}).get("name", "未知")
+            injuries_data = _do_request("injuries", {"team": team_id, "season": DEFAULT_SEASON})
+            injuries = [inj["player"]["name"] + "（" + inj["player"].get("type", "未知") + "）"
+                        for inj in injuries_data.get("response", [])[:5]]
 
             logger.info(f"成功获取球队数据: {team_name} (id={team_id})")
             return {
                 "team_name": team_name,
-                "league": league_name,
+                "league": stats.get("league", {}).get("name", "未知"),
                 "recent_matches": matches,
-                "injuries": injuries[:5],  # 最多5条
+                "injuries": injuries,
                 "win_rate": win_rate,
                 "avg_goals": float(stats.get("goals", {}).get("for", {}).get("average", {}).get("total", 0.0) or 0.0),
             }
@@ -202,11 +300,14 @@ def fetch_team_stats(team_name: str, max_retries: int = 3) -> MatchResultDict:
 
 
 def fetch_match_odds(team_a: str, team_b: str, max_retries: int = 3) -> OddsDict:
-    """
-    获取比赛胜平负赔率
-    注意：api-football free plan 不提供赔率数据，返回 N/A
-    """
-    # Free plan 无赔率，直接返回 N/A，避免阻断主流程
+    """获取比赛胜平负赔率"""
+    if USE_MOCK:
+        resolved_a = TEAM_NAME_ALIASES.get(team_a, team_a)
+        resolved_b = TEAM_NAME_ALIASES.get(team_b, team_b)
+        logger.info(f"[MOCK] fetch_match_odds: {team_a} vs {team_b}")
+        return _mock_match_odds(resolved_a, resolved_b)
+
+    # 真实 API：Free plan 不提供赔率
     logger.warning(f"[Free Plan] 赔率数据不可用: {team_a} vs {team_b}")
     return {
         "team_a": team_a,
@@ -222,31 +323,22 @@ def fetch_match_odds(team_a: str, team_b: str, max_retries: int = 3) -> OddsDict
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    print(f"USE_MOCK = {USE_MOCK}")
 
-    print("=" * 50)
-    print("测试 fetch_team_stats")
-    print("=" * 50)
+    print("\n--- fetch_team_stats ---")
+    s1 = fetch_team_stats("曼城")
+    print(f"{s1['team_name']} | 胜率 {s1['win_rate']:.0%} | 场均 {s1['avg_goals']}球")
+    print(f"  伤病: {s1['injuries']}")
 
-    stats = fetch_team_stats("Manchester City")
-    print(f"\n球队: {stats['team_name']} ({stats['league']})")
-    print(f"胜率: {stats['win_rate']:.0%} | 场均进球: {stats['avg_goals']}")
-    print("近期战绩:")
-    for m in stats["recent_matches"]:
-        print(f"  {m['date']} {m['result']} {m['opponent']} {m['score']}")
-    print(f"伤病: {', '.join(stats['injuries']) if stats['injuries'] else '无'}")
+    s2 = fetch_team_stats("阿森纳")
+    print(f"{s2['team_name']} | 胜率 {s2['win_rate']:.0%} | 场均 {s2['avg_goals']}球")
 
-    print("\n" + "-" * 50)
+    print("\n--- fetch_match_odds ---")
+    o1 = fetch_match_odds("曼城", "阿森纳")
+    print(f"{o1['team_a']} vs {o1['team_b']}: 主胜 {o1['home_win']} 平 {o1['draw']} 主负 {o1['away_win']}")
 
-    stats2 = fetch_team_stats("Real Madrid")
-    print(f"\n球队: {stats2['team_name']} ({stats2['league']})")
-    print(f"伤病: {', '.join(stats2['injuries']) if stats2['injuries'] else '无'}")
+    print("\n--- fetch_team_stats (未知球队降级) ---")
+    s3 = fetch_team_stats("某未知队")
+    print(f"降级返回: {s3}")
 
-    print("\n" + "=" * 50)
-    print("测试 fetch_match_odds")
-    print("=" * 50)
-
-    odds = fetch_match_odds("Manchester City", "Real Madrid")
-    print(f"\n{odds['team_a']} vs {odds['team_b']}")
-    print(f"主胜: {odds['home_win']} | 平局: {odds['draw']} | 主负: {odds['away_win']}")
-
-    print("\n所有测试通过 OK")
+    print("\n测试完成 OK")
