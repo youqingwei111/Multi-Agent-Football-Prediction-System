@@ -1,5 +1,6 @@
 """
-MiniMax LLM 客户端 - 用于 analyst_node 调用大模型进行战术分析
+MiniMax LLM 客户端 - 包含 LangChain ChatModel 适配器
+用于 create_react_agent 的 model 参数
 """
 
 import os
@@ -8,6 +9,7 @@ import time
 import logging
 import requests
 from dotenv import load_dotenv
+from typing import Any
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -16,10 +18,12 @@ MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY")
 MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.chat/v1")
 MODEL = os.getenv("LLM_MODEL", "MiniMax-M2")
 
+# ===================== 基础 chat 接口（保持向后兼容） =====================
+
 
 def chat(prompt: str, system_prompt: str = "你是一个专业的足球战术分析师。", max_retries: int = 3) -> str:
     """
-    调用 MiniMax-M2 进行对话补全
+    调用 MiniMax-M2 进行对话补全（同步简单调用）
     """
     url = f"{MINIMAX_BASE_URL}/text/chatcompletion_v2"
     headers = {
@@ -42,7 +46,6 @@ def chat(prompt: str, system_prompt: str = "你是一个专业的足球战术分
             resp.raise_for_status()
             data = resp.json()
 
-            # MiniMax 响应结构: choices[0].message.content
             if "choices" in data and len(data["choices"]) > 0:
                 return data["choices"][0]["message"]["content"]
 
@@ -57,48 +60,61 @@ def chat(prompt: str, system_prompt: str = "你是一个专业的足球战术分
     raise ConnectionError("MiniMax LLM 不可达")
 
 
-def build_analysis_prompt(team_a: str, team_b: str, a_stats: dict, b_stats: dict) -> str:
+# ===================== LangChain ChatModel 适配器 =====================
+
+
+def _convert_messages(messages) -> list[dict]:
+    """将 LangChain message 对象列表转换为 OpenAI 格式"""
+    result = []
+    for msg in messages:
+        if hasattr(msg, "type"):
+            if msg.type == "system":
+                result.append({"role": "system", "content": msg.content})
+            elif msg.type == "human":
+                result.append({"role": "user", "content": msg.content})
+            elif msg.type == "ai":
+                result.append({"role": "assistant", "content": msg.content})
+            elif msg.type == "tool":
+                result.append({"role": "user", "content": f"[tool result]: {msg.content}"})
+    return result
+
+
+def MiniMaxChatModel(**kwargs: Any):
     """
-    构建发送给 LLM 的分析 Prompt
+    工厂函数：返回适配 LangChain 的 MiniMax ChatModel callable
+    供 create_react_agent(model=...) 使用
     """
-    def fmt_stats(stats: dict) -> str:
-        name = stats.get("team_name", "?")
-        league = stats.get("league", "?")
-        win_rate = stats.get("win_rate", 0.0)
-        avg_goals = stats.get("avg_goals", 0.0)
-        injuries = stats.get("injuries", [])
-        matches = stats.get("recent_matches", [])
+    model_name = kwargs.get("model_name", MODEL)
+    base_url = kwargs.get("base_url", MINIMAX_BASE_URL)
+    api_key = kwargs.get("api_key", MINIMAX_API_KEY)
+    max_tokens = kwargs.get("max_tokens", 1024)
 
-        lines = [
-            f"球队：{name}（{league}）",
-            f"赛季胜率：{win_rate:.0%}",
-            f"场均进球：{avg_goals}",
-            f"伤病/状态问题：{', '.join(injuries[:3]) if injuries else '无'}",
-            "近5场战绩：",
-        ]
-        for m in matches[-5:]:
-            lines.append(f"  {m.get('date','?')} {m.get('result','?')} vs {m.get('opponent','?')} {m.get('score','?')}")
-        return "\n".join(lines)
+    def _invoke(messages: list, **call_kwargs) -> str:
+        url = f"{base_url}/text/chatcompletion_v2"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        openai_messages = _convert_messages(messages)
+        if not openai_messages:
+            openai_messages = [{"role": "user", "content": "hello"}]
 
-    a_info = fmt_stats(a_stats)
-    b_info = fmt_stats(b_stats)
+        payload = {
+            "model": model_name,
+            "messages": openai_messages,
+            "max_tokens": max_tokens,
+            "temperature": call_kwargs.get("temperature", 0.7),
+        }
 
-    return f"""请分析以下这场比赛的战术走向和胜负预测：
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
 
-【主队】
-{a_info}
+    return _invoke
 
-【客队】
-{b_info}
 
-请从以下角度进行分析（用中文输出）：
-1. 近期状态对比（哪队状态更好）
-2. 关键伤停影响（阵容完整度）
-3. 战术风格预测（进攻/防守/控球）
-4. 胜负预测与比分估算（给出你的判断）
-
-分析要求：专业、简洁、有参考价值。"""
-
+# ===================== 测试入口 =====================
 
 if __name__ == "__main__":
     # 快速连通性测试

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
 
-from graph_workflow import run_analysis
+from multi_agent_graph import run_multi_agent_analysis
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 # ===================== FastAPI 实例 =====================
 
 app = FastAPI(
-    title="足球赛事分析 API",
-    description="基于 LangGraph 多节点编排的足球比赛分析服务",
-    version="1.0.0",
+    title="足球赛事分析 API - Multi-Agent",
+    description="基于 Multi-Agent 架构的足球比赛分析服务，流水线：球探→分析师→主编",
+    version="2.0.0",
 )
 
 # ===================== CORS 中间件 =====================
@@ -62,15 +62,15 @@ async def analyze_match(req: AnalyzeRequest):
     logger.info(f"收到分析请求: {req.team_a} vs {req.team_b}")
 
     try:
-        result = run_analysis(req.team_a, req.team_b)
+        result = run_multi_agent_analysis(req.team_a, req.team_b)
     except Exception as e:
-        logger.error(f"Graph 运行失败: {e}")
+        logger.error(f"Multi-Agent Graph 运行失败: {e}")
         raise HTTPException(status_code=500, detail=f"分析失败: {e}")
 
     return AnalyzeResponse(
         team_a=result.get("team_a", req.team_a),
         team_b=result.get("team_b", req.team_b),
-        fetch_errors=result.get("fetch_errors", 0),
+        fetch_errors=0,
         final_report=result.get("final_report", ""),
     )
 
