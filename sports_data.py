@@ -99,7 +99,7 @@ TEAM_NAME_ALIASES: dict[str, str] = {
     "曼联": "Manchester United",
     "皇马": "Real Madrid",
     "巴萨": "Barcelona",
-    "拜仁": "Bayern Munich",
+    "拜仁": "Bayern München",
     "利物浦": "Liverpool",
     "切尔西": "Chelsea",
     "阿森纳": "Arsenal",
@@ -108,11 +108,57 @@ TEAM_NAME_ALIASES: dict[str, str] = {
     "国米": "Inter",
     "多特": "Borussia Dortmund",
     "巴黎": "Paris Saint-Germain",
+    "巴黎圣日尔曼": "Paris Saint-Germain",
     "马竞": "Atletico Madrid",
     "热刺": "Tottenham Hotspur",
     "维拉": "Aston Villa",
     "维罗纳": "Hellas Verona",
 }
+
+# 欧洲焦点球队 ID 映射表（通过 API /teams 接口查出）
+TEAM_ID_MAPPING: dict[str, int] = {
+    # 英超
+    "Manchester City": 50,
+    "Manchester United": 33,
+    "Liverpool": 40,
+    "Chelsea": 49,
+    "Arsenal": 42,
+    "Aston Villa": 103,
+    "Tottenham Hotspur": 47,
+    # 西甲
+    "Real Madrid": 541,
+    "Barcelona": 529,
+    "Atletico Madrid": 530,
+    # 德甲
+    "Bayern München": 157,
+    "Borussia Dortmund": 165,
+    # 意甲
+    "Juventus": 109,
+    "AC Milan": 108,
+    "Inter": 108,
+    # 法甲
+    "Paris Saint-Germain": 85,
+}
+
+
+def get_team_id(team_name: str) -> int | None:
+    """
+    将中文队名或英文队名转换为 API 球队 ID。
+    优先从 TEAM_ID_MAPPING 查询，未知球队再通过 API 搜索并缓存。
+    """
+    # 1. 先尝试 ID 映射表（英文名）
+    if team_name in TEAM_ID_MAPPING:
+        return TEAM_ID_MAPPING[team_name]
+    # 2. 通过别名转英文后再查映射表
+    resolved = TEAM_NAME_ALIASES.get(team_name, team_name)
+    if resolved in TEAM_ID_MAPPING:
+        return TEAM_ID_MAPPING[resolved]
+    # 3. 动态搜索 API
+    team_id = _search_team_id(team_name)
+    if team_id is not None:
+        TEAM_ID_MAPPING[resolved] = team_id
+        logger.info(f"[Team ID] Cached {resolved} -> {team_id}")
+    return team_id
 
 
 # ===================== 数据结构 =====================
@@ -233,7 +279,7 @@ def fetch_team_stats(team_name: str, max_retries: int = 3) -> MatchResultDict:
     last_error = None
     for attempt in range(1, max_retries + 1):
         try:
-            team_id = _search_team_id(team_name)
+            team_id = get_team_id(team_name)
             if team_id is None:
                 raise ValueError(f"球队不存在或名称不匹配: {team_name}")
 
@@ -342,3 +388,4 @@ if __name__ == "__main__":
     print(f"降级返回: {s3}")
 
     print("\n测试完成 OK")
+    
