@@ -46,6 +46,42 @@ class TacticalArticle(SQLModel, table=True):
     embedding: str        # 向量序列化字符串，应用层自行管理
 
 
+class GraphRunSnapshot(SQLModel, table=True):
+    """LangGraph 每次运行的完整快照"""
+    __tablename__ = "graph_run_snapshots"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    team_a: str
+    team_b: str
+    scout_report: str = ""
+    historical_knowledge: str = ""
+    analysis_draft: str = ""
+    final_report: str = ""
+    fetch_errors: int = 0
+    run_at: str  # ISO timestamp
+
+
+def save_graph_snapshot(state: dict) -> None:
+    """将流水线运行结果写入数据库"""
+    import datetime
+    from sqlmodel import Session
+    engine = get_engine()
+    snapshot = GraphRunSnapshot(
+        team_a=state.get("team_a", ""),
+        team_b=state.get("team_b", ""),
+        scout_report=state.get("scout_report", ""),
+        historical_knowledge=state.get("historical_knowledge", ""),
+        analysis_draft=state.get("analysis_draft", ""),
+        final_report=state.get("final_report", ""),
+        fetch_errors=state.get("fetch_errors", 0),
+        run_at=datetime.datetime.now().isoformat(),
+    )
+    with Session(engine) as session:
+        session.add(snapshot)
+        session.commit()
+    logger.info(f"[Snapshot] 运行快照已写入数据库: {snapshot.team_a} vs {snapshot.team_b}")
+
+
 # ===================== Embedding 生成 =====================
 
 

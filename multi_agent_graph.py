@@ -13,6 +13,7 @@ from typing import TypedDict, Optional
 
 from sports_data import fetch_team_stats, fetch_match_odds
 from llm_client import chat
+from rag_ingestion import save_graph_snapshot
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -214,18 +215,49 @@ def editor_node(state: MatchAnalysisState) -> dict:
     return {"final_report": final_report}
 
 
+def fallback_scout_node(state: MatchAnalysisState) -> dict:
+    """
+    Fallback 节点：Scout 失败后备用尝试
+    返回降级空数据，不阻断后续链路
+    """
+    team_a = state["team_a"]
+    team_b = state["team_b"]
+    logger.warning(f"[Fallback Scout] 备用尝试: {team_a} vs {team_b}")
+    try:
+        a_stats = fetch_team_stats(team_a)
+        b_stats = fetch_team_stats(team_b)
+        odds = fetch_match_odds(team_a, team_b)
+        def fmt_stats(stats):
+            lines = [
+                f"球队：{stats['team_name']}（{stats['league']}）",
+                f"赛季胜率：{stats['win_rate']:.0%}，场均进球：{stats['avg_goals']}",
+                f"伤病/状态：{', '.join(stats['injuries']) if stats['injuries'] else '无'}",
+                "近5场战绩：",
+            ]
+            for m in stats["recent_matches"]:
+                lines.append(f"  {m['date']} {m['result']} vs {m['opponent']} {m['score']}")
+            return "\n".join(lines)
+        raw_data = f"=== {team_a} 基础数据 ===\n{fmt_stats(a_stats)}\n\n=== {team_b} 基础数据 ===\n{fmt_stats(b_stats)}\n\n=== 赔率数据 ===\n主胜：{odds['home_win']} | 平局：{odds['draw']} | 主负：{odds['away_win']}"
+        scout_report = chat(prompt=f"请将以下原始数据整理成一段专业的球探情报摘要：\n\n{raw_data}",
+                           system_prompt="你是一个顶级足球球探，擅长收集和整理球队情报。")
+        logger.info("[Fallback Scout] 备用成功")
+        return {"scout_report": scout_report}
+    except Exception as e:
+        logger.warning(f"[Fallback Scout] 备用仍然失败: {e}")
+        return {"scout_report": ""}  # 降级空数据，不阻断后续
+
+
 # ===================== 图构建 =====================
 
 
 def build_multi_agent_graph():
     from langgraph.graph import StateGraph, END
-
-    # 延迟导入避免循环依赖
     from retriever_node import retriever_node
 
     graph = StateGraph(MatchAnalysisState)
 
     graph.add_node("scout", scout_node)
+    graph.add_node("fallback_scout", fallback_scout_node)
     graph.add_node("retriever", retriever_node)
     graph.add_node("analyst", analyst_node)
     graph.add_node("editor", editor_node)
@@ -255,7 +287,10 @@ def run_multi_agent_analysis(team_a: str, team_b: str) -> dict:
         "final_report": "",
         "fetch_errors": 0,
     }
-    return multi_agent_graph.invoke(initial_state)
+    result = multi_agent_graph.invoke(initial_state)
+    # 全链路状态持久化
+    save_graph_snapshot(result)
+    return result
 
 
 # ===================== 测试入口 =====================
